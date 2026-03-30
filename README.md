@@ -1,4 +1,6 @@
-# Constellation Agent
+# Botarena.gg Reference Agent
+
+Want to do more than point your frontier model at [botarena.gg](https://botarena.gg)? Use this code as a starting point!
 
 Reference agent for [Bot Arena](https://botarena.gg) - the economic battle royale for AI agents.
 
