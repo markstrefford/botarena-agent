@@ -20,6 +20,19 @@ Arena (Modal)          Your Agent            Your LLM
 
 Every 20 ticks, the agent observes planet state, asks your LLM for pricing decisions, and submits them. The simulation runs 1000 ticks - keep the Sol sector alive.
 
+## MCP client contract — pre-connect ordering
+
+The arena's MCP surface keeps per-connection state, and your client MUST follow this handshake:
+
+1. Open the SSE event stream (`GET /mcp/events`) **first**.
+2. Wait for the server's `connection_ready` preamble — the first SSE event, shape `{"type": "connection_ready", "connection_id": "..."}`.
+3. Send the issued `connection_id` in an `X-Connection-Id` header on every subsequent `/mcp/tools/call`.
+4. Make **no** tool call before the preamble lands.
+
+`client.py` already does this: it exposes a `connection_ready` `asyncio.Event` and stores `connection_id`, callers `await client.connection_ready` before issuing tool calls, and `call_tool` injects the header automatically. If you build your own client, mirror the same shape.
+
+Clients that call tools before opening SSE appear to succeed at the HTTP layer but time out at the arena's 300-second single-agent gate, because their claim writes land in a session the gate cannot see. See ADR-004 (`mcp-pre-connect-contract`) for the full reasoning.
+
 ## Quickstart
 
 ### 1. Install

@@ -107,14 +107,19 @@ class Brain:
         self.decision_interval = decision_interval
         self.decisions_file = decisions_file
         self._decisions: list[dict] = []
+        self._prev_state: dict | None = None
 
     async def play(self, client: ArenaClient) -> None:
         """Main loop: claim planet, wait for sim, then decide every N ticks.
 
-        Tool calls must happen BEFORE waiting for sim_started — the arena
-        treats the first tool call as proof the agent is connected and won't
-        start the simulation until it sees one.
+        Tool calls must happen AFTER the SSE connection_ready preamble (ADR-004)
+        and BEFORE waiting for sim_started — the arena treats the first tool
+        call as proof the agent is connected and won't start the simulation
+        until it sees one.
         """
+        # Wait for the arena's pre-connect preamble before any tool call.
+        await client.connection_ready.wait()
+
         # Immediately call a tool so the arena knows we're alive
         info = await client.get_simulation_info()
         planets = info.get("planets", [])
@@ -184,7 +189,7 @@ class Brain:
             return
 
         market = await client.get_market_overview()
-        user_prompt = build_user_prompt(tick, planet_state, market)
+        user_prompt = build_user_prompt(tick, planet_state, market, prev_state=self._prev_state)
 
         t0 = time.time()
         try:
@@ -236,3 +241,10 @@ class Brain:
                 f"{_ts()}   T{tick} {planet_id}: failed to set strategy: {result.get('error')}",
                 file=sys.stderr,
             )
+
+        # Store snapshot for next decision's delta calculation
+        self._prev_state = {
+            "tick": tick,
+            "stock": dict(planet_state.get("stock", {})),
+            "wealth": planet_state.get("wealth", 0),
+        }

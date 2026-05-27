@@ -62,8 +62,9 @@ class TestBuildUserPrompt:
     def test_stock_delta_ema(self):
         state = {**PLANET_STATE, "stock_delta_ema": {"food": -2.5, "energy": 1.0}}
         prompt = build_user_prompt(tick=10, planet_state=state)
-        assert "observed" in prompt
+        # stock_delta_ema replaces the estimated net flow with the observed one
         assert "-2.5" in prompt
+        assert "net -2.5/tick" in prompt
 
     def test_low_treasury_warning(self):
         state = {**PLANET_STATE, "wealth": 100}  # very low
@@ -75,3 +76,12 @@ class TestBuildUserPrompt:
         state = {**PLANET_STATE, "current_strategy": {"reasoning": "hold prices steady"}}
         prompt = build_user_prompt(tick=10, planet_state=state)
         assert "hold prices steady" in prompt
+
+    def test_prev_state_renders_deltas(self):
+        prev = {"tick": 0, "stock": {"food": 400, "energy": 350}, "wealth": 48000}
+        prompt = build_user_prompt(tick=20, planet_state=PLANET_STATE, prev_state=prev)
+        assert "Since Last Decision" in prompt
+        assert "20 ticks ago" in prompt
+        # food rose from 400 -> 500 (+100), wealth rose from 48000 -> 50000 (+2000)
+        assert "+100" in prompt
+        assert "+2,000" in prompt

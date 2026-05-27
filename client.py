@@ -37,6 +37,13 @@ class ArenaClient:
         self.sim_complete = asyncio.Event()
         self.final_scores: dict | None = None
 
+        # Pre-connect contract (ADR-004): set by listen_events when the
+        # server's connection_ready preamble arrives. Callers must await
+        # connection_ready before any tool call; every call_tool carries
+        # connection_id in X-Connection-Id.
+        self.connection_id: str | None = None
+        self.connection_ready = asyncio.Event()
+
     # ── Lobby ────────────────────────────────────────────────────────
 
     def set_credentials(self, agent_id: str, api_key: str) -> None:
@@ -114,9 +121,15 @@ class ArenaClient:
     async def call_tool(self, tool: str, args: dict | None = None) -> dict:
         """Call an MCP tool on the arena. Returns the result dict."""
         assert self._arena is not None, "Not connected to arena"
+        if self.connection_id is None:
+            raise RuntimeError(
+                "Tool call attempted before SSE connection_ready preamble. "
+                "Await client.connection_ready before calling tools (ADR-004)."
+            )
         resp = await self._arena.post(
             f"{self.arena_url}/mcp/tools/call",
             json={"tool": tool, "args": args or {}},
+            headers={"X-Connection-Id": self.connection_id},
         )
         resp.raise_for_status()
         return resp.json().get("result", {})
@@ -164,7 +177,11 @@ class ArenaClient:
                     event = json.loads(line[6:])
                     etype = event.get("type")
 
-                    if etype == "tick_update":
+                    if etype == "connection_ready":
+                        self.connection_id = event.get("connection_id")
+                        self.connection_ready.set()
+
+                    elif etype == "tick_update":
                         self.tick = event.get("tick", 0)
 
                     elif etype == "sim_started":
