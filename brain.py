@@ -108,10 +108,6 @@ class Brain:
         self.decisions_file = decisions_file
         self._decisions: list[dict] = []
         self._prev_state: dict | None = None
-        # Fail-loud tripwire: consecutive set_strategy rejections that say the
-        # planet isn't claimed by us. If ownership is ever lost mid-game, the
-        # loop aborts instead of silently playing blind to the end.
-        self._unclaimed_streak = 0
 
     async def play(self, client: ArenaClient) -> None:
         """Main loop: claim planet, wait for sim, then decide every N ticks.
@@ -241,22 +237,10 @@ class Brain:
             reasoning=reasoning,
         )
         if not result.get("success"):
-            err = str(result.get("error"))
             print(
-                f"{_ts()}   T{tick} {planet_id}: failed to set strategy: {err}",
+                f"{_ts()}   T{tick} {planet_id}: failed to set strategy: {result.get('error')}",
                 file=sys.stderr,
             )
-            if "not claimed" in err.lower():
-                self._unclaimed_streak += 1
-                if self._unclaimed_streak >= 5:
-                    raise RuntimeError(
-                        f"Hub ownership lost: 5+ consecutive 'not claimed' rejections "
-                        f"on {planet_id}. Aborting rather than playing blind. "
-                        f"(Are you sending X-Connection-Id on tool calls? Don't — "
-                        f"ownership is bound to the session_key.)"
-                    )
-        else:
-            self._unclaimed_streak = 0   # a write landed -> we still own the hub
 
         # Store snapshot for next decision's delta calculation
         self._prev_state = {

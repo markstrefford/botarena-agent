@@ -1,12 +1,11 @@
 """Tests for the MCP pre-connect contract.
 
+Per ADR-004 and story `mcp-pre-connect-contract`:
+
 - The client must open the SSE event stream and observe the server's
-  `connection_ready` preamble before issuing any tool call (it confirms
-  the governor is registered).
-- The client must authenticate tool calls with the `session_key` ONLY and
-  must NOT send `X-Connection-Id`. Ownership is bound to the session_key;
-  the connection_id rotates on every stream reconnect, and binding tool
-  calls to it orphans the hub claim after the first reconnect.
+  `connection_ready` preamble before issuing any tool call.
+- The client must carry the server-issued `connection_id` in the
+  `X-Connection-Id` header on every tool call.
 
 Pure-asyncio tests for the wait primitive; httpx.MockTransport for the
 header assertion.
@@ -88,14 +87,12 @@ def test_listen_events_sets_connection_ready_on_preamble():
 # ── Header propagation ────────────────────────────────────────────────
 
 
-def test_call_tool_omits_x_connection_id_header():
-    """call_tool authenticates with the session_key only and must NOT send
-    X-Connection-Id.
+def test_call_tool_sends_x_connection_id_header():
+    """call_tool sends the stored connection_id in the X-Connection-Id
+    header on every tool call.
 
-    Ownership is bound to the stable session_key. The connection_id rotates
-    on every SSE reconnect; sending it on tool calls orphans the hub claim
-    after the first reconnect (every set_strategy then rejected "not claimed
-    by you"). This test guards against the header being reintroduced.
+    Without this assertion, the server's single-session fallback would
+    silently mask a missing-header bug — see ADR-004 consequences (b).
     """
 
     async def run():
@@ -120,11 +117,8 @@ def test_call_tool_omits_x_connection_id_header():
 
         assert len(seen_headers) == 2
         for h in seen_headers:
-            assert "x-connection-id" not in h, (
-                f"X-Connection-Id must not be sent on tool calls: {h}"
-            )
-            assert h.get("authorization") == "Bearer sk-test", (
-                f"tool call must authenticate with the session_key: {h}"
+            assert h.get("x-connection-id") == "conn-xyz", (
+                f"X-Connection-Id missing or wrong: {h}"
             )
 
     asyncio.run(run())

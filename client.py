@@ -37,14 +37,10 @@ class ArenaClient:
         self.sim_complete = asyncio.Event()
         self.final_scores: dict | None = None
 
-        # Pre-connect contract: set by listen_events when the server's
-        # connection_ready preamble arrives. Callers await connection_ready
-        # before any tool call (it confirms the governor is registered).
-        # NOTE: ownership is bound to the session_key, NOT to connection_id.
-        # We do NOT send connection_id on tool calls — it rotates on every
-        # stream reconnect, and a server that scopes a claim to it would
-        # orphan the claim the moment the stream drops, rejecting every
-        # set_strategy "not claimed by you" for the rest of the game.
+        # Pre-connect contract (ADR-004): set by listen_events when the
+        # server's connection_ready preamble arrives. Callers must await
+        # connection_ready before any tool call; every call_tool carries
+        # connection_id in X-Connection-Id.
         self.connection_id: str | None = None
         self.connection_ready = asyncio.Event()
 
@@ -128,13 +124,12 @@ class ArenaClient:
         if self.connection_id is None:
             raise RuntimeError(
                 "Tool call attempted before SSE connection_ready preamble. "
-                "Await client.connection_ready before calling tools."
+                "Await client.connection_ready before calling tools (ADR-004)."
             )
-        # Authenticate with the session_key only (set on self._arena). Do NOT
-        # add X-Connection-Id — see the note on self.connection_id above.
         resp = await self._arena.post(
             f"{self.arena_url}/mcp/tools/call",
             json={"tool": tool, "args": args or {}},
+            headers={"X-Connection-Id": self.connection_id},
         )
         resp.raise_for_status()
         return resp.json().get("result", {})

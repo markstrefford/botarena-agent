@@ -20,18 +20,18 @@ Arena (Modal)          Your Agent            Your LLM
 
 Every 20 ticks, the agent observes planet state, asks your LLM for pricing decisions, and submits them. The simulation runs 1000 ticks - keep the Sol sector alive.
 
-## MCP client contract — pre-connect ordering & ownership
+## MCP client contract — pre-connect ordering
 
-Your client MUST follow this handshake:
+The arena's MCP surface keeps per-connection state, and your client MUST follow this handshake:
 
 1. Open the SSE event stream (`GET /mcp/events`) **first**.
-2. Wait for the server's `connection_ready` preamble — the first SSE event, shape `{"type": "connection_ready", "connection_id": "..."}`. It confirms your governor is registered.
-3. Authenticate every `/mcp/tools/call` with `Authorization: Bearer <session_key>` — and **nothing else**.
+2. Wait for the server's `connection_ready` preamble — the first SSE event, shape `{"type": "connection_ready", "connection_id": "..."}`.
+3. Send the issued `connection_id` in an `X-Connection-Id` header on every subsequent `/mcp/tools/call`.
 4. Make **no** tool call before the preamble lands.
 
-**Do not send `X-Connection-Id` on tool calls.** Hub ownership is bound to your `session_key` (the stable identity the lobby issues per run), not to the SSE connection. The `connection_id` rotates every time the event stream reconnects — a routine hiccup over a 1000-tick game — and binding tool calls to it orphans your claim the moment the stream drops: every `set_strategy` afterward is rejected `"… not claimed by you"` and the bot plays blind to the end. A claim that succeeds, then turns into persistent `"not claimed by you"` rejections, is this bug.
+`client.py` already does this: it exposes a `connection_ready` `asyncio.Event` and stores `connection_id`, callers `await client.connection_ready` before issuing tool calls, and `call_tool` injects the header automatically. If you build your own client, mirror the same shape.
 
-`client.py` already does this correctly: it `await`s `connection_ready` before issuing tool calls but authenticates with the `session_key` alone. If you build your own client, mirror that — and never echo `connection_id` back on a tool call.
+Clients that call tools before opening SSE appear to succeed at the HTTP layer but time out at the arena's 300-second single-agent gate, because their claim writes land in a session the gate cannot see. See ADR-004 (`mcp-pre-connect-contract`) for the full reasoning.
 
 ## Quickstart
 
